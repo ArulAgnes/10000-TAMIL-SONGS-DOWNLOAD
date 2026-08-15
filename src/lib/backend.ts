@@ -3,7 +3,13 @@
 
 import { NextResponse } from "next/server";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// BACKEND_URL is the Docker-internal address (http://backend:8000), used for
+// server-side proxying inside the container. NEXT_PUBLIC_API_URL remains the
+// address browser-side clients use (http://localhost:8000).
+export const API_URL =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8000";
 
 interface ProxyOptions {
   method?: string;

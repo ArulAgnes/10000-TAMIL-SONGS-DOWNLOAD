@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   db:
@@ -7,26 +5,30 @@ services:
     container_name: audio_analyzer_db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DATABASE_URL}
-      POSTGRES_DB: audio_analyzer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-audio_analyzer}
+    # Host port 5432 is usually taken by a local PostgreSQL service;
+    # expose Docker DB on host 5433. Backend still connects via db:5432 (internal).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-audio_analyzer}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
 
-  # Redis (optional, for Celery)
+  # Redis (unused by the current backend code, kept for optional Celery)
   redis:
     image: redis:7-alpine
     container_name: audio_analyzer_redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
+    restart: unless-stopped
 
   # FastAPI Backend
   backend:
@@ -35,8 +37,11 @@ services:
       dockerfile: Dockerfile
     container_name: audio_analyzer_backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:${DATABASE_URL}@db:5432/audio_analyzer
+      DATABASE_URL: "${DATABASE_URL}"
       REDIS_URL: redis://redis:6379/0
+      AUDIO_STORAGE_PATH: ./audio_collection
+      ARCHIVE_DIR: ./archives
+      TEMP_DIR: ./temp
       API_HOST: 0.0.0.0
       API_PORT: 8000
       DEBUG: "true"
@@ -49,22 +54,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_started
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
 
   # Next.js Frontend
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
     container_name: audio_analyzer_frontend
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      BACKEND_URL: http://backend:8000
     ports:
       - "3000:3000"
     depends_on:
       - backend
+    restart: unless-stopped
 
 volumes:
   postgres_data:

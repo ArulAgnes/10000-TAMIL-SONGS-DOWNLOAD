@@ -1,0 +1,31 @@
+# Python venv / caches
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+*.egg-info
+
+# Environment & secrets (never bake into images)
+.env
+.env.*
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated data / temp
+archives
+audio_collection
+downloads
+temp
+tmp
+test_temp
+
+# Tests not needed in the image
+tests
+
+# Logs
+*.log

@@ -1,0 +1,59 @@
+# Dependencies / build output
+node_modules
+.next
+out
+dist
+build
+
+# VCS
+.git
+
+# Repo areas not needed inside the frontend image
+backend
+frontend
+Uploads
+.vscode
+
+# Environment & secrets (never bake into images)
+.env
+.env.*
+
+# Python artifacts
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+*.egg-info
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated audio / archives / temp
+archives
+audio_collection
+downloads
+temp
+tmp
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.opus
+
+# Logs & docs
+*.log
+dev-server.log
+README.md
+ARCHITECTURE.md
+API.md
+setup.sh
+*.tsbuildinfo
+
+# Compose / tooling files not needed in the image
+docker-compose.yml
+drizzle.config.json

@@ -1,0 +1,14 @@
+{
+    "python.analysis.typeEvaluation.strictDictionaryInference": true,
+    "intelephense.diagnostics.strictTypes": false,
+    "js/ts.implicitProjectConfig.strictNullChecks": true,
+    "python.analysis.typeEvaluation.strictListInference": true,
+    "python.analysis.typeEvaluation.strictSetInference": true,
+    "python.analysis.typeCheckingMode": "standard",
+    "js/ts.implicitProjectConfig.strict": false,
+    "python.analysis.exclude": [
+        "**/.venv/**",
+        "**/node_modules/**"
+    ],
+    "python.analysis.diagnosticMode": "openFilesOnly"
+}

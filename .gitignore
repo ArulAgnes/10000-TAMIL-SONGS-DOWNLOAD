@@ -1,0 +1,127 @@
+# =========================================================
+# Environment / Secrets
+# =========================================================
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Python environment
+venv/
+.venv/
+env/
+ENV/
+
+# =========================================================
+# Node.js / Next.js
+# =========================================================
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+
+# Next.js generated files
+next-env.d.ts
+*.tsbuildinfo
+
+# =========================================================
+# Python cache / generated files
+# =========================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# =========================================================
+# Logs
+# =========================================================
+*.log
+logs/
+dev-server.log
+dev_server.log
+
+# =========================================================
+# Local databases
+# =========================================================
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite-journal
+
+# =========================================================
+# Temporary files
+# =========================================================
+temp/
+tmp/
+test-temp/
+test_temp/
+.cache/
+
+# =========================================================
+# Generated audio / archives
+# =========================================================
+archives/
+audio_collection/
+audio-collection/
+downloads/
+download/
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Audio files - don't accidentally push thousands of songs
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.opus
+
+# =========================================================
+# IDE / Editor
+# =========================================================
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+.idea/
+*.swp
+*.swo
+
+# =========================================================
+# OS files
+# =========================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================================================
+# Python build artifacts
+# =========================================================
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+wheels/
+
+# =========================================================
+# Coverage / test output
+# =========================================================
+.coverage.*
+coverage.xml
+.pytest_cache/
+
+# =========================================================
+# Local application-generated files
+# =========================================================
+*.pid
+*.pid.lock

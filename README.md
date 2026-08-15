@@ -1,7 +1,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:7F00FF,100:E100FF&height=230&section=header&text=Audio%20Collection%20Analyzer&fontSize=40&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Year-Based%20Audio%20Crawling%20%7C%20Smart%20Archiving%20%7C%20Full-Stack&descAlignY=55&descAlign=50" />
 
 <p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=700&size=40&pause=1000&center=true&vCenter=true&width=1000&height=100&lines=%F0%9F%8E%A7+Production+Quality+Full-Stack+Analyzer;%F0%9F%97%93%EF%B8%8F+Year-Based+Crawling+1990-2026;%E2%9A%A1+FastAPI+%2B+Next.js+%2B+WebSockets;%F0%9F%93%A6+Smart+ZIP+Archive+Generation" alt="Typing SVG" />
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=700&size=38&pause=1000&center=true&vCenter=true&width=1000&height=100&lines=%F0%9F%8E%A7+10,000+SONGS+Full-Stack+Analyzer;%F0%9F%97%93%EF%B8%8F+Year-Based+DOWNLOADING+1990-2026;%E2%9A%A1+FastAPI+%2B+Next.js+%2B+WebSockets;%F0%9F%93%A6+Smart+ZIP+Archive+Generation" alt="Typing SVG" />
 </p>
 
 <div align="center">
@@ -89,22 +89,22 @@
 
 ###  UI 
 <p align="center">
-  <a href="uploads/UI.png"><img src="uploads/UI.png" width="95%" style="border-radius:15px; transition: all 0.4s ease;" onmouseover="this.style.transform='scale(1.02) rotateY(1deg)'" onmouseout="this.style.transform='scale(1)'" /></a>
+  <a href="Uploads/UI.png"><img src="Uploads/UI.png" width="95%" style="border-radius:15px; transition: all 0.4s ease;" onmouseover="this.style.transform='scale(1.02) rotateY(1deg)'" onmouseout="this.style.transform='scale(1)'" /></a>
 </p>
 
 ### 1⃣ Yearwise Audio Collection Dashboard
 <p align="center">
-  <a href="uploads/Yearwise%20audio%20collection.png"><img src="uploads/Yearwise%20audio%20collection.png" width="95%" style="border-radius:15px; transition: all 0.4s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.2);" onmouseover="this.style.transform='scale(1.03) rotateY(2deg)'; this.style.boxShadow='0 20px 50px rgba(127,0,255,0.4)'" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 10px 30px rgba(0,0,0,0.2)'" /></a>
+  <a href="Uploads/Yearwise%20audio%20collection.png"><img src="Uploads/Yearwise%20audio%20collection.png" width="95%" style="border-radius:15px; transition: all 0.4s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.2);" onmouseover="this.style.transform='scale(1.03) rotateY(2deg)'; this.style.boxShadow='0 20px 50px rgba(127,0,255,0.4)'" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 10px 30px rgba(0,0,0,0.2)'" /></a>
 </p>
 
 ### 2⃣ Completion Process — Real-time Progress
 <p align="center">
-  <a href="uploads/Completion%20process.png"><img src="uploads/Completion%20process.png" width="95%" style="border-radius:15px; transition: all 0.4s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.2);" onmouseover="this.style.transform='scale(1.03) rotateY(-2deg)'; this.style.boxShadow='0 20px 50px rgba(225,0,255,0.4)'" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 10px 30px rgba(0,0,0,0.2)'" /></a>
+  <a href="Uploads/Completion%20process.png"><img src="Uploads/Completion%20process.png" width="95%" style="border-radius:15px; transition: all 0.4s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.2);" onmouseover="this.style.transform='scale(1.03) rotateY(-2deg)'; this.style.boxShadow='0 20px 50px rgba(225,0,255,0.4)'" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 10px 30px rgba(0,0,0,0.2)'" /></a>
 </p>
 
 ### 3⃣ Terminal Songs Load — Crawler Engine
 <p align="center">
-  <a href="uploads/Terminal%20Songs%20Load.png"><img src="uploads/Terminal%20Songs%20Load.png" width="95%" style="border-radius:15px; transition: all 0.4s ease;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" /></a>
+  <a href="Uploads/Terminal%20Songs%20Load.png"><img src="Uploads/Terminal%20Songs%20Load.png" width="95%" style="border-radius:15px; transition: all 0.4s ease;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" /></a>
 </p>
 
 

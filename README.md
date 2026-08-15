@@ -1,7 +1,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:7F00FF,100:E100FF&height=230&section=header&text=Audio%20Collection%20Analyzer&fontSize=40&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Year-Based%20Audio%20Crawling%20%7C%20Smart%20Archiving%20%7C%20Full-Stack&descAlignY=55&descAlign=50" />
 
 <p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=700&size=22&pause=1000&center=true&vCenter=true&width=1000&height=100&lines=%F0%9F%8E%A7+Production+Quality+Full-Stack+Analyzer;%F0%9F%97%93%EF%B8%8F+Year-Based+Crawling+1990-2026;%E2%9A%A1+FastAPI+%2B+Next.js+%2B+WebSockets;%F0%9F%93%A6+Smart+ZIP+Archive+Generation" alt="Typing SVG" />
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=700&size=40&pause=1000&center=true&vCenter=true&width=1000&height=100&lines=%F0%9F%8E%A7+Production+Quality+Full-Stack+Analyzer;%F0%9F%97%93%EF%B8%8F+Year-Based+Crawling+1990-2026;%E2%9A%A1+FastAPI+%2B+Next.js+%2B+WebSockets;%F0%9F%93%A6+Smart+ZIP+Archive+Generation" alt="Typing SVG" />
 </p>
 
 <div align="center">
@@ -40,7 +40,7 @@
 
 **Audio Collection Analyzer** is not just a crawler — it's a complete **Production-Grade Audio Intelligence System** built for archiving and organizing publicly exposed audio collections at scale.
 
-> 🗓️ Year-Wise Discovery | 🎵 Album & Track Intelligence | 📦 Auto ZIP Archiving | 📊 Real-time Dashboard
+**🗓️ Year-Wise Discovery | 🎵 Album & Track Intelligence | 📦 Auto ZIP Archiving | 📊 Real-time Dashboard**
 
 **Problem Solved:**
 - Manual collection browsing → Automated year-based crawling (1990-2026)
@@ -52,19 +52,19 @@
 
 ---
 
-## 🎯 3D Feature Cards
+## 🎯 Feature
 
 <div align="center">
 
 <table>
 <tr>
 <td align="center" width="25%">
-<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Musical%20Notes.png" width="70" />
-<br><b>🗓️ Year Crawler</b>
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Calendar.png" width="70" />
+<br><b>🗓 Year Crawler</b>
 <br><sub>Auto discover 1990-2026<br>Pagination detection</sub>
 </td>
 <td align="center" width="25%">
-<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Compact%20Disc.png" width="70" />
+<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Optical%20Disk.png" width="70" />
 <br><b>💿 Album Intel</b>
 <br><sub>Title, Artist, Director<br>Genre extraction</sub>
 </td>
@@ -85,9 +85,12 @@
 
 ---
 
-## 🖼 Project Showcase — 3D Hover Gallery
+## 🖼 Project Showcase 
 
-> **TIP:** Built with pure CSS 3D — Hover for lift effect
+###  UI 
+<p align="center">
+  <a href="uploads/UI.png"><img src="uploads/UI.png" width="95%" style="border-radius:15px; transition: all 0.4s ease;" onmouseover="this.style.transform='scale(1.02) rotateY(1deg)'" onmouseout="this.style.transform='scale(1)'" /></a>
+</p>
 
 ### 1⃣ Yearwise Audio Collection Dashboard
 <p align="center">
@@ -104,10 +107,7 @@
   <a href="uploads/Terminal%20Songs%20Load.png"><img src="uploads/Terminal%20Songs%20Load.png" width="95%" style="border-radius:15px; transition: all 0.4s ease;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" /></a>
 </p>
 
-### 4⃣ UI Overview
-<p align="center">
-  <a href="uploads/Ul.png"><img src="uploads/Ul.png" width="95%" style="border-radius:15px; transition: all 0.4s ease;" onmouseover="this.style.transform='scale(1.02) rotateY(1deg)'" onmouseout="this.style.transform='scale(1)'" /></a>
-</p>
+
 
 ---
 
@@ -117,16 +117,16 @@
 
 ```mermaid
 graph TD
-    A[🌐 User Enters URL Pattern<br/>https://site.com/{year}] --> B[⚙️ FastAPI Backend]
-    B --> C[🕷️ Crawler Engine<br/>Async + Rate Limit]
-    C --> D[📅 Year Discovery<br/>1990-2026]
-    D --> E[💿 Album Discovery<br/>Metadata Extraction]
-    E --> F[🎵 Song Analysis<br/>Audio Resources]
-    F --> G[(🗄️ PostgreSQL<br/>SQLAlchemy)]
-    G --> H[📡 WebSocket<br/>Live Progress]
-    H --> I[💻 Next.js Dashboard<br/>Tailwind UI]
-    I --> J[📦 Archive Generator<br/>ZIP by Year/Album]
-    J --> K[⬇️ Download Manager<br/>Authorized Only]
+    A["🌐 User Enters URL Pattern<br/>https://site.com/&#123;year&#125;"] --> B["⚙ FastAPI Backend"]
+    B --> C["🕷 Crawler Engine<br/>Async + Rate Limit"]
+    C --> D["📅 Year Discovery<br/>1990-2026"]
+    D --> E["💿 Album Discovery<br/>Metadata Extraction"]
+    E --> F["🎵 Song Analysis<br/>Audio Resources"]
+    F --> G[("🗄 PostgreSQL<br/>SQLAlchemy")]
+    G --> H["📡 WebSocket<br/>Live Progress"]
+    H --> I["💻 Next.js Dashboard<br/>Tailwind UI"]
+    I --> J["📦 Archive Generator<br/>ZIP by Year/Album"]
+    J --> K["⬇ Download Manager<br/>Authorized Only"]
 ```
 
 </div>

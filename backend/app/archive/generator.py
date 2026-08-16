@@ -28,6 +28,10 @@ class ArchiveError(Exception):
     """Raised when archive generation fails."""
 
 
+class ArchiveCancelled(ArchiveError):
+    """Raised when archive generation is cancelled by the user."""
+
+
 class ArchiveGenerator:
     """Generator for ZIP archives of audio collections."""
 
@@ -42,10 +46,18 @@ class ArchiveGenerator:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
         self.progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+        self.cancel_event: Optional[object] = None
 
     def set_progress_callback(self, callback: Callable[[Dict[str, Any]], None]):
         """Set callback for progress updates."""
         self.progress_callback = callback
+
+    def set_cancel_event(self, cancel_event: Optional[object]):
+        """Set an object with ``is_set()`` to support cancellation."""
+        self.cancel_event = cancel_event
+
+    def _cancelled(self) -> bool:
+        return bool(self.cancel_event is not None and self.cancel_event.is_set())
 
     def _emit_progress(self, data: Dict[str, Any]):
         if self.progress_callback:
@@ -92,6 +104,7 @@ class ArchiveGenerator:
         archive_name: str,
         job_id: Optional[int] = None,
         compression: int = zipfile.ZIP_DEFLATED,
+        root_folder: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a ZIP archive from source files.
 
@@ -99,6 +112,9 @@ class ArchiveGenerator:
             source_files: list of dicts with ``path`` (absolute) and ``arcname``.
             archive_name: final ZIP file name (e.g. ``1990.zip``).
             job_id: optional download job ID for progress events.
+            root_folder: optional top-level folder placed inside the ZIP (e.g.
+                ``Tamil_Songs_1990-1992``). All members are nested under it.
+                Defaults to no root folder (flat year/album layout).
 
         Returns:
             Dict with ``success``, ``archive_path`` (absolute),
@@ -107,6 +123,7 @@ class ArchiveGenerator:
         """
         result = {
             "success": False,
+            "cancelled": False,
             "archive_path": None,
             "relative_path": None,
             "archive_name": None,
@@ -117,6 +134,9 @@ class ArchiveGenerator:
 
         if not archive_name.endswith(".zip"):
             archive_name += ".zip"
+
+        if root_folder:
+            root_folder = self._safe_arcname(root_folder).rstrip("/")
 
         self.archive_dir.mkdir(parents=True, exist_ok=True)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -137,8 +157,13 @@ class ArchiveGenerator:
 
             with zipfile.ZipFile(temp_archive_path, "w", compression=compression) as zf:
                 for idx, file_info in enumerate(source_files):
+                    if self._cancelled():
+                        raise ArchiveCancelled("Archive creation cancelled")
+
                     file_path = Path(file_info["path"])
                     arcname = self._safe_arcname(file_info.get("arcname", file_path.name))
+                    if root_folder:
+                        arcname = f"{root_folder}/{arcname}"
 
                     if not file_path.is_file():
                         logger.warning("File not found, skipping", path=str(file_path))
@@ -185,6 +210,12 @@ class ArchiveGenerator:
                 size_bytes=archive_size,
             )
 
+        except ArchiveCancelled as e:
+            logger.info("Archive cancelled", archive_name=archive_name)
+            result["cancelled"] = True
+            result["error"] = str(e)
+            if temp_archive_path.exists():
+                temp_archive_path.unlink()
         except Exception as e:
             logger.error("Archive creation failed", error=str(e))
             result["error"] = str(e)
@@ -228,8 +259,20 @@ class ArchiveGenerator:
         years: List[int],
         audio_root: Path,
         job_id: Optional[int] = None,
+        prefix: Optional[str] = None,
+        root_folder: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create ``<start>-<end>.zip`` containing year/album/... structure."""
+        """Create ``<prefix><start>-<end>.zip`` containing year/album/... structure.
+
+        Args:
+            years: year numbers to include (only existing year dirs are added).
+            audio_root: filesystem audio collection root.
+            job_id: optional job ID for progress events.
+            prefix: optional archive name prefix, e.g. ``Tamil_Songs_`` for
+                ``Tamil_Songs_1990-1992.zip``.
+            root_folder: optional top-level folder inside the ZIP, e.g.
+                ``Tamil_Songs_1990-1992``.
+        """
         source_files = []
         for year in sorted(years):
             year_dir = audio_root / AudioStorage.sanitize_segment(str(year))
@@ -243,11 +286,15 @@ class ArchiveGenerator:
         if not source_files:
             return {"success": False, "error": "No audio files found for specified years"}
 
-        name = f"{min(years)}-{max(years)}.zip"
+        prefix = (prefix or "").strip().rstrip("_- ")
+        if prefix:
+            prefix = f"{prefix}_"
+        name = f"{prefix}{min(years)}-{max(years)}.zip"
         return await self.create_zip_archive(
             source_files=source_files,
             archive_name=name,
             job_id=job_id,
+            root_folder=root_folder,
         )
 
     async def create_album_archive(

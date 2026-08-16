@@ -14,6 +14,7 @@ from app.database.config import get_db, AsyncSessionLocal
 from app.models.database import (
     CrawlJob, Year, Category, Album, Song, AudioResource,
     DownloadJob, Archive, CrawlLog, FailedUrl, JobStatus, ResourceStatus,
+    Artist, ArtistType, ArchiveStatus,
 )
 from app.models.schemas import (
     AnalyzeRequest, AnalyzeResponse, CrawlProgress,
@@ -27,18 +28,24 @@ from app.models.schemas import (
     YearsDownloadRequest,
     ArchiveResponse, YearArchiveRequest, AlbumArchiveRequest,
     YearsArchiveRequest,
+    ArtistResponse, ArtistListResponse, ArtistSongResponse,
+    ArtistSongsResponse, ArtistAnalyzeRequest, ArtistDiscoverRequest,
+    CollectionCreateRequest, CollectionResponse, CollectionProgress,
+    CollectionArchiveRequest,
     SearchRequest, SearchResponse, SearchResult,
     DashboardStatistics, StatisticsOverview, YearStatistics,
     FailedUrlResponse, WebSocketMessage,
 )
 from app.services.crawl_service import CrawlService
 from app.services.download_service import DownloadService
+from app.services.artist_service import ArtistService
 from app.storage.audio_storage import AudioStorage, AudioStorageError
 from app.archive.generator import ArchiveError
 
 router = APIRouter()
 crawl_service = CrawlService()
 download_service = DownloadService()
+artist_service = ArtistService()
 
 RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 
@@ -800,6 +807,7 @@ def _serialize_archive(archive: Archive) -> ArchiveResponse:
     return ArchiveResponse(
         id=archive.id,
         download_job_id=archive.download_job_id,
+        crawl_job_id=archive.crawl_job_id,
         archive_type=archive.archive_type,
         name=archive.name,
         path=archive.path,
@@ -807,6 +815,9 @@ def _serialize_archive(archive: Archive) -> ArchiveResponse:
         file_count=archive.file_count,
         year_start=archive.year_start,
         year_end=archive.year_end,
+        status=archive.status.value if archive.status else None,
+        error_message=archive.error_message,
+        completed_at=archive.completed_at,
         created_at=archive.created_at,
         expires_at=archive.expires_at,
         download_url=f"/api/archives/{archive.id}/file",
@@ -890,6 +901,44 @@ async def search(
                 url=album.url,
                 status=album.status.value,
                 relevance_score=0.9
+            ))
+
+    # Search artists (database-backed, matched against display name and
+    # normalized name so "a r rahman" finds "A.R. Rahman")
+    if request.search_type in ("all", "artist"):
+        from app.utils import normalize_artist_name
+        artists_query = (
+            select(Artist)
+            .where(or_(
+                Artist.name.ilike(query_term),
+                Artist.normalized_name.ilike(query_term),
+            ))
+            .order_by(Artist.song_count.desc())
+            .limit(request.limit)
+        )
+        if request.year:
+            artists_query = (
+                select(Artist)
+                .join(Song, Song.artist_id == Artist.id)
+                .join(Album, Song.album_id == Album.id)
+                .join(Category, Album.category_id == Category.id)
+                .join(Year, Category.year_id == Year.id)
+                .where(Year.year == request.year)
+                .distinct()
+                .order_by(Artist.song_count.desc())
+                .limit(request.limit)
+            )
+        artist_result = await db.execute(artists_query)
+        for artist in artist_result.scalars().all():
+            results.append(SearchResult(
+                type="artist",
+                id=artist.id,
+                title=artist.name,
+                subtitle=artist.artist_type.value if artist.artist_type else None,
+                year=request.year,
+                url=f"/artists/{artist.slug}",
+                status=None,
+                relevance_score=0.95
             ))
 
     return SearchResponse(
@@ -1081,3 +1130,349 @@ async def websocket_progress(
         # Unregister callback on disconnect
         if job_id in crawl_service.progress_callbacks:
             crawl_service.progress_callbacks[job_id].remove(send_progress)
+
+
+# ============================================================================
+# Artist Routes
+# ============================================================================
+
+@router.get("/artists", response_model=ArtistListResponse)
+async def list_artists(
+    letter: Optional[str] = Query(None, description="Filter by letter A-Z or '#' for non-alpha"),
+    search: Optional[str] = Query(None, max_length=100),
+    sort: str = Query("name", description="sort: name|song_count"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """List artists with A-Z directory support, search, sort and pagination."""
+    artists, total = await artist_service.list_artists(
+        db, letter=letter, search=search, sort=sort, limit=limit, offset=offset
+    )
+    return ArtistListResponse(
+        total=total,
+        limit=limit,
+        offset=offset,
+        artists=[ArtistResponse.model_validate(a) for a in artists],
+    )
+
+
+@router.get("/artists/search", response_model=ArtistListResponse)
+async def search_artists(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Database-backed artist autocomplete search."""
+    artists = await artist_service.search(db, q, limit=limit)
+    return ArtistListResponse(
+        total=len(artists),
+        limit=limit,
+        offset=0,
+        artists=[ArtistResponse.model_validate(a) for a in artists],
+    )
+
+
+@router.get("/artists/{slug}", response_model=ArtistResponse)
+async def get_artist(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single artist by slug."""
+    artist = await artist_service.get_by_slug(db, slug)
+    if not artist:
+        raise HTTPException(404, "Artist not found")
+    return ArtistResponse.model_validate(artist)
+
+
+@router.get("/artists/{slug}/songs", response_model=ArtistSongsResponse)
+async def get_artist_songs(
+    slug: str,
+    year: Optional[int] = Query(None, ge=1900, le=2100),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get songs for an artist, optionally filtered by year."""
+    artist = await artist_service.get_by_slug(db, slug)
+    if not artist:
+        raise HTTPException(404, "Artist not found")
+    songs, total = await artist_service.get_artist_songs(
+        db, artist.id, year=year, limit=limit, offset=offset
+    )
+    return ArtistSongsResponse(
+        artist=ArtistResponse.model_validate(artist),
+        total=total,
+        limit=limit,
+        offset=offset,
+        songs=[ArtistSongResponse.model_validate(s) for s in songs],
+    )
+
+
+@router.get("/artists/{slug}/years", response_model=List[int])
+async def get_artist_years(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the distinct years in which an artist has songs."""
+    artist = await artist_service.get_by_slug(db, slug)
+    if not artist:
+        raise HTTPException(404, "Artist not found")
+    return await artist_service.get_artist_years(db, artist.id)
+
+
+@router.post("/artists/analyze", response_model=dict)
+async def analyze_artist(
+    request: ArtistAnalyzeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Start (or cancel) analysis of an artist's page. Metadata-only."""
+    if request.artist_url:
+        artist = await artist_service.get_by_id(db, request.artist_id)
+        if not artist:
+            raise HTTPException(404, "Artist not found")
+        artist.source_url = request.artist_url
+        db.add(artist)
+        await db.commit()
+
+    started = await artist_service.start_analysis(db, request.artist_id)
+    if not started:
+        # Already running -> treat as cancel request
+        cancelled = await artist_service.cancel_analysis(request.artist_id)
+        return {
+            "artist_id": request.artist_id,
+            "status": "cancelled" if cancelled else "running",
+            "message": "Analysis cancelled" if cancelled else "Analysis already running",
+        }
+    return {
+        "artist_id": request.artist_id,
+        "status": "running",
+        "message": "Artist analysis started",
+    }
+
+
+@router.post("/artists/discover", response_model=dict)
+async def discover_artists(
+    request: ArtistDiscoverRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Discover artist links from an artist index page (metadata-only)."""
+    from app.crawler.audio_crawler import discover_artist_links
+    links = await discover_artist_links(crawl_service.engine, request.index_url, job_id=None)
+    if not links:
+        raise HTTPException(404, "No artist links found on index page")
+
+    created = 0
+    updated = 0
+    for name, url, _ in links[: request.max_artists]:
+        existing = await artist_service.get_or_create(db, name, source_url=url)
+        if existing.artist_type is None:
+            existing.artist_type = request.artist_type
+            updated += 1
+        else:
+            created += 1
+    await db.commit()
+
+    return {
+        "status": "success",
+        "discovered": len(links[: request.max_artists]),
+        "created": created,
+        "updated": updated,
+    }
+
+
+# ============================================================================
+# Multi-year Collection Routes
+# ============================================================================
+
+@router.post("/collections", response_model=CollectionResponse)
+async def create_collection(
+    request: CollectionCreateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Start a multi-year collection crawl producing a combined ZIP archive."""
+    if request.start_year > request.end_year:
+        raise HTTPException(400, "start_year must be <= end_year")
+
+    if request.start_year < 1900 or request.end_year > 2100:
+        raise HTTPException(400, "Year range out of bounds (1900-2100)")
+
+    job = await crawl_service.create_crawl_job(
+        db,
+        AnalyzeRequest(
+            base_url=request.base_url,
+            start_year=request.start_year,
+            end_year=request.end_year,
+            config=request.config,
+        ),
+    )
+    if not job:
+        raise HTTPException(400, "Failed to create crawl job")
+
+    await crawl_service.start_crawl(db, job.id)
+    years = list(range(request.start_year, request.end_year + 1))
+
+    return CollectionResponse(
+        job_id=job.id,
+        status=job.status.value,
+        years=years,
+        start_year=request.start_year,
+        end_year=request.end_year,
+        base_url=request.base_url,
+        message="Collection crawl started",
+        created_at=job.created_at,
+    )
+
+
+@router.get("/collections/{job_id}", response_model=dict)
+async def get_collection(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get collection job status."""
+    job = await db.get(CrawlJob, job_id)
+    if not job:
+        raise HTTPException(404, "Collection job not found")
+    return {
+        "job_id": job.id,
+        "status": job.status.value,
+        "start_year": job.start_year,
+        "end_year": job.end_year,
+        "base_url": job.base_url,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "error_message": job.error_message,
+    }
+
+
+@router.post("/collections/{job_id}/cancel", response_model=dict)
+async def cancel_collection(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel a running collection crawl."""
+    job = await db.get(CrawlJob, job_id)
+    if not job:
+        raise HTTPException(404, "Collection job not found")
+    stopped = await crawl_service.stop_crawl(job_id)
+    return {
+        "job_id": job_id,
+        "cancelled": stopped,
+        "status": "cancelling" if stopped else job.status.value,
+    }
+
+
+@router.get("/collections/{job_id}/progress", response_model=CollectionProgress)
+async def collection_progress(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get live progress for a collection job."""
+    progress = await crawl_service.get_job_progress(db, job_id)
+    if not progress:
+        raise HTTPException(404, "Collection job not found")
+
+    started_at = None
+    completed_at = None
+    if progress.get("started_at"):
+        started_at = datetime.fromisoformat(progress["started_at"])
+    if progress.get("completed_at"):
+        completed_at = datetime.fromisoformat(progress["completed_at"])
+
+    return CollectionProgress(
+        job_id=job_id,
+        status=progress["status"],
+        total_years=progress["total_years"],
+        completed_years=progress["processed_years"],
+        total_albums=progress["total_albums"],
+        total_songs=progress["total_songs"],
+        total_resources=progress["total_resources"],
+        failed_urls=progress["failed_urls_count"],
+        skipped_urls=progress["skipped_urls_count"],
+        current_year=progress["current_year"],
+        current_album=progress["current_album"],
+        current_song=progress["current_song"],
+        progress_percentage=progress["progress_percentage"],
+        started_at=started_at,
+        completed_at=completed_at,
+        elapsed_seconds=progress["elapsed_seconds"],
+        estimated_remaining_seconds=None,
+        error_message=progress["error_message"],
+    )
+
+
+@router.post("/collections/{job_id}/archive", response_model=ArchiveResponse)
+async def create_collection_archive(
+    job_id: int,
+    request: CollectionArchiveRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a combined ZIP for the collection's year range."""
+    job = await db.get(CrawlJob, job_id)
+    if not job:
+        raise HTTPException(404, "Collection job not found")
+
+    if not (job.start_year and job.end_year):
+        raise HTTPException(400, "Job has no year range")
+
+    start_year = request.start_year or job.start_year
+    end_year = request.end_year or job.end_year
+    if start_year > end_year:
+        raise HTTPException(400, "start_year must be <= end_year")
+
+    result = await download_service.create_collection_archive(
+        db,
+        crawl_job_id=job_id,
+        start_year=start_year,
+        end_year=end_year,
+        prefix=request.prefix or "",
+    )
+    return result
+
+
+@router.post("/collections/{job_id}/archive/cancel", response_model=dict)
+async def cancel_collection_archive(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel a running collection archive generation."""
+    job = await db.get(CrawlJob, job_id)
+    if not job:
+        raise HTTPException(404, "Collection job not found")
+
+    archive_row = await db.execute(
+        select(Archive)
+        .where(Archive.crawl_job_id == job_id)
+        .where(Archive.status == ArchiveStatus.RUNNING)
+        .order_by(Archive.created_at.desc())
+        .limit(1)
+    )
+    archive = archive_row.scalar_one_or_none()
+    if not archive:
+        raise HTTPException(404, "No running archive for this collection")
+
+    cancelled = download_service.cancel_collection_archive(archive.id)
+    return {
+        "archive_id": archive.id,
+        "cancelled": cancelled,
+        "status": ArchiveStatus.CANCELLED.value if cancelled else archive.status.value,
+    }
+
+
+@router.get("/collections/{job_id}/archive", response_model=ArchiveResponse)
+async def get_collection_archive(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the latest archive for a collection job."""
+    archive_row = await db.execute(
+        select(Archive)
+        .where(Archive.crawl_job_id == job_id)
+        .order_by(Archive.created_at.desc())
+        .limit(1)
+    )
+    archive = archive_row.scalar_one_or_none()
+    if not archive:
+        raise HTTPException(404, "No archive for this collection yet")
+    return _serialize_archive(archive)

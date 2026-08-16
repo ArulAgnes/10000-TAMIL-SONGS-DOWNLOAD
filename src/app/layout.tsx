@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import NavBar from "@/components/NavBar";
 
 export const metadata: Metadata = {
   title: "Audio Collection Analyzer",
@@ -10,7 +11,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-gray-100 text-gray-900 antialiased">{children}</body>
+      <body className="bg-gray-100 text-gray-900 antialiased">
+        <NavBar />
+        {children}
+      </body>
     </html>
   );
 }

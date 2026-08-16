@@ -15,6 +15,8 @@ from app.models.database import (
 from app.models.schemas import CrawlerConfig, AnalyzeRequest
 from app.crawler.audio_crawler import AudioWebsiteCrawler
 from app.crawler.engine import CrawlerEngine
+from app.services.artist_service import ArtistService
+from app.utils import parse_duration_seconds
 
 logger = structlog.get_logger()
 
@@ -25,6 +27,7 @@ class CrawlService:
     def __init__(self):
         self.active_jobs: Dict[int, AudioWebsiteCrawler] = {}
         self.progress_callbacks: Dict[int, List[Callable]] = {}
+        self.artist_service = ArtistService()
     
     async def create_crawl_job(
         self,
@@ -85,6 +88,9 @@ class CrawlService:
             if not job:
                 return
 
+            job.started_at = job.started_at or datetime.utcnow()
+            await db.commit()
+
             try:
                 async with CrawlerEngine(crawler.engine_config) as engine:
                     # Generate year URLs
@@ -94,9 +100,14 @@ class CrawlService:
                         job.end_year
                     )
 
+                    total_years = len(year_urls)
+
                     for year, url in year_urls:
                         if crawler._stop_requested:
                             break
+
+                        job.current_year = year
+                        await db.commit()
 
                         # Create or get year record
                         year_record = await self._get_or_create_year(db, job_id, year, url)
@@ -109,6 +120,7 @@ class CrawlService:
                         year_record.status = JobStatus.COMPLETED
                         job.total_pages = (job.total_pages or 0) + year_record.total_pages
                         job.processed_pages = (job.processed_pages or 0) + year_record.total_pages
+                        job.failed_urls_count = (job.failed_urls_count or 0) + len(year_result["errors"])
                         await db.commit()
 
                         # Save albums
@@ -117,12 +129,16 @@ class CrawlService:
 
                         # Update job progress
                         job.processed_years += 1
+                        job.progress_percentage = self._compute_progress(job, total_years)
                         await db.commit()
 
                         # Analyze albums
                         for album_info in year_result["albums"]:
                             if crawler._stop_requested:
                                 break
+
+                            job.current_album = album_info.title
+                            await db.commit()
 
                             try:
                                 album_details = await crawler.analyze_album(
@@ -138,22 +154,53 @@ class CrawlService:
                                     album_url=album_info.url,
                                     error=str(e),
                                 )
+                                job.failed_urls_count = (job.failed_urls_count or 0) + 1
                                 album_details = None
 
                             if album_details:
                                 await self._update_album_details(db, album_info.url, album_details)
 
+                                # Link the album's primary artist (metadata only)
+                                album_row = await self._get_album(db, album_info.url)
+                                if album_row:
+                                    try:
+                                        await self.artist_service.link_album_artist(db, album_row)
+                                    except Exception as e:
+                                        logger.warning(
+                                            "Album artist linking failed",
+                                            album=album_row.title, error=str(e),
+                                        )
+
                                 # Save songs
                                 for song_info in album_details.songs:
+                                    if crawler._stop_requested:
+                                        break
+                                    job.current_song = song_info.title
                                     song = await self._save_song(db, album_info.url, song_info)
                                     if song:
                                         job.processed_songs += 1
+                                        job.total_resources = (job.total_resources or 0) + len(song_info.audio_resources)
+
+                                        # Link the song to its artist(s)
+                                        artist_field = song_info.artist or (album_details.artist or "")
+                                        if artist_field:
+                                            try:
+                                                await self.artist_service.link_song_artist(
+                                                    db, song, artist_field
+                                                )
+                                            except Exception as e:
+                                                logger.warning(
+                                                    "Artist linking failed",
+                                                    song=song.title, error=str(e),
+                                                )
 
                                         # Save audio resources found on the song page
                                         for resource in song_info.audio_resources:
                                             await self._save_audio_resource(db, song.id, resource)
 
+                            job.current_song = None
                             job.processed_albums += 1
+                            job.progress_percentage = self._compute_progress(job, total_years)
                             await db.commit()
 
                         # Refresh the year counters from the actual database so
@@ -162,20 +209,26 @@ class CrawlService:
                         album_count, song_count = await self._refresh_year_counts(db, year_record.id)
                         job.total_albums = (job.total_albums or 0) + album_count
                         job.total_songs = (job.total_songs or 0) + song_count
+                        job.progress_percentage = self._compute_progress(job, total_years)
                         await db.commit()
 
                     # Mark job complete
                     if not crawler._stop_requested:
                         job.status = JobStatus.COMPLETED
                         job.completed_at = datetime.utcnow()
+                        job.progress_percentage = 100.0
                     else:
                         job.status = JobStatus.CANCELLED
 
                     await db.commit()
 
+                    # Refresh artist song counts once at the end (bulk, not per song)
+                    await self.artist_service.refresh_all_song_counts(db)
+
             except Exception as e:
                 logger.error("Crawl failed", job_id=job_id, error=str(e))
                 job.status = JobStatus.FAILED
+                job.error_message = str(e)
                 await db.commit()
 
                 # Log error
@@ -193,6 +246,25 @@ class CrawlService:
                 # Cleanup
                 if job_id in self.active_jobs:
                     del self.active_jobs[job_id]
+
+    @staticmethod
+    def _compute_progress(job: CrawlJob, total_years: int) -> float:
+        """Weighted progress across years/albums/songs for the collection UI."""
+        parts = []
+        if total_years > 0:
+            parts.append((job.processed_years or 0) / total_years * 100)
+        if (job.total_albums or 0) > 0:
+            parts.append(min((job.processed_albums or 0), (job.total_albums or 0)) / (job.total_albums or 0) * 100)
+        if (job.total_songs or 0) > 0:
+            parts.append(min((job.processed_songs or 0), (job.total_songs or 0)) / (job.total_songs or 0) * 100)
+        if not parts:
+            return 0.0
+        value = sum(parts) / len(parts)
+        return max(0.0, min(100.0, value))
+
+    async def _get_album(self, db: AsyncSession, album_url: str) -> Optional[Album]:
+        result = await db.execute(select(Album).where(Album.url == album_url))
+        return result.scalars().first()
     
     async def _get_or_create_year(
         self,
@@ -318,12 +390,16 @@ class CrawlService:
         result = await db.execute(select(Song).where(*conditions))
         song = result.scalar_one_or_none()
 
+        duration_seconds = parse_duration_seconds(song_info.duration)
+
         if song:
             # Refresh metadata on re-crawl
             song.title = song_info.title or song.title
             song.url = song_info.url or song.url
             song.track_number = song_info.track_number or song.track_number
             song.duration = song_info.duration or song.duration
+            if song_info.duration:
+                song.duration_seconds = duration_seconds
             song.artist = song_info.artist or song.artist
             if song_info.audio_resources:
                 song.status = JobStatus.COMPLETED
@@ -336,7 +412,8 @@ class CrawlService:
             url=song_info.url,
             track_number=song_info.track_number,
             duration=song_info.duration,
-            artist=song_info.artist,
+            duration_seconds=duration_seconds,
+            artist=song_info.artist or album.artist,
             status=JobStatus.COMPLETED if song_info.audio_resources else JobStatus.PENDING,
         )
         db.add(song)
@@ -463,6 +540,13 @@ class CrawlService:
 
         overall = sum(sub_progresses) / len(sub_progresses) if sub_progresses else 0
 
+        started_at = job.started_at
+        completed_at = job.completed_at
+        elapsed = None
+        if started_at:
+            end = completed_at or datetime.utcnow()
+            elapsed = max(0, int((end - started_at).total_seconds()))
+
         return {
             "job_id": job_id,
             "status": job.status.value,
@@ -478,5 +562,19 @@ class CrawlService:
             "total_songs": total_songs,
             "processed_songs": processed_songs,
             "song_progress": clamp((processed_songs / total_songs * 100) if total_songs else 0),
+            "total_resources": job.total_resources or 0,
+            "failed_urls_count": job.failed_urls_count or 0,
+            "skipped_urls_count": job.skipped_urls_count or 0,
+            "current_year": job.current_year,
+            "current_album": job.current_album,
+            "current_song": job.current_song,
+            "progress_percentage": job.progress_percentage if job.progress_percentage is not None else clamp(overall),
+            "started_at": started_at.isoformat() if started_at else None,
+            "completed_at": completed_at.isoformat() if completed_at else None,
+            "elapsed_seconds": elapsed,
+            "error_message": job.error_message,
+            "base_url": job.base_url,
+            "start_year": job.start_year,
+            "end_year": job.end_year,
             "overall_progress": clamp(overall),
         }

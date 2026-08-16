@@ -79,8 +79,147 @@ export interface SongData {
   title: string;
   track_number?: number;
   duration?: string;
+  duration_seconds?: number;
   artist?: string;
   status: string;
+}
+
+// ---------------------------------------------------------------------------
+// Artists
+// ---------------------------------------------------------------------------
+
+export interface ArtistData {
+  id: number;
+  name: string;
+  normalized_name: string;
+  slug: string;
+  artist_type?: string | null;
+  source_url?: string | null;
+  song_count: number;
+  first_seen?: string | null;
+  last_seen?: string | null;
+  created_at?: string | null;
+}
+
+export interface ArtistListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  artists: ArtistData[];
+}
+
+export interface ArtistSongData {
+  id: number;
+  title: string;
+  album?: string | null;
+  album_id?: number | null;
+  year?: number | null;
+  duration?: string | null;
+  duration_seconds?: number | null;
+  artist?: string | null;
+  track_number?: number | null;
+  status?: string | null;
+  resource_count: number;
+  source_url?: string | null;
+}
+
+export interface ArtistSongsResponse {
+  artist: ArtistData;
+  total: number;
+  limit: number;
+  offset: number;
+  songs: ArtistSongData[];
+}
+
+export interface ArtistAnalyzeRequest {
+  artist_id: number;
+  artist_url?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-year collections
+// ---------------------------------------------------------------------------
+
+export interface CollectionCreateRequest {
+  base_url: string;
+  start_year: number;
+  end_year: number;
+  archive_prefix?: string;
+  config?: CrawlerConfig;
+}
+
+export interface CollectionResponse {
+  job_id: number;
+  status: string;
+  years: number[];
+  start_year: number;
+  end_year: number;
+  base_url: string;
+  message: string;
+  created_at: string;
+}
+
+export interface CollectionProgress {
+  job_id: number;
+  status: string;
+  total_years: number;
+  completed_years: number;
+  total_albums: number;
+  total_songs: number;
+  total_resources: number;
+  failed_urls: number;
+  skipped_urls: number;
+  current_year?: number | null;
+  current_album?: string | null;
+  current_song?: string | null;
+  progress_percentage: number;
+  started_at?: string | null;
+  completed_at?: string | null;
+  elapsed_seconds?: number | null;
+  estimated_remaining_seconds?: number | null;
+  error_message?: string | null;
+}
+
+export interface CollectionStatus {
+  job_id: number;
+  status: string;
+  start_year: number;
+  end_year: number;
+  base_url: string;
+  created_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error_message?: string | null;
+}
+
+export interface ArchiveData {
+  id: number;
+  download_job_id: number;
+  crawl_job_id?: number | null;
+  archive_type?: string | null;
+  name: string;
+  path: string;
+  size_bytes: number;
+  file_count: number;
+  year_start?: number | null;
+  year_end?: number | null;
+  status?: string | null;
+  error_message?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  download_url?: string | null;
+}
+
+// Duration formatting: MM:SS / HH:MM:SS / "--:--"
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || seconds < 0) return "--:--";
+  const s = Math.floor(seconds);
+  const hours = Math.floor(s / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (hours > 0) return `${hours}:${pad(minutes)}:${pad(secs)}`;
+  return `${pad(minutes)}:${pad(secs)}`;
 }
 
 export interface DownloadResponse {
@@ -252,6 +391,103 @@ class ApiClient {
 
   async getArchives(): Promise<ArchiveData[]> {
     return this.fetchJson("/api/archives");
+  }
+
+  async getArtists(params?: {
+    letter?: string;
+    search?: string;
+    sort?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ArtistListResponse> {
+    const sp = new URLSearchParams();
+    if (params?.letter) sp.set("letter", params.letter);
+    if (params?.search) sp.set("search", params.search);
+    if (params?.sort) sp.set("sort", params.sort);
+    if (params?.limit) sp.set("limit", String(params.limit));
+    if (params?.offset) sp.set("offset", String(params.offset));
+    return this.fetchJson(`/api/artists?${sp}`);
+  }
+
+  async searchArtists(q: string, limit = 10): Promise<ArtistListResponse> {
+    const sp = new URLSearchParams();
+    sp.set("q", q);
+    sp.set("limit", String(limit));
+    return this.fetchJson(`/api/artists/search?${sp}`);
+  }
+
+  async getArtist(slug: string): Promise<ArtistData> {
+    return this.fetchJson(`/api/artists/${slug}`);
+  }
+
+  async getArtistSongs(
+    slug: string,
+    params?: { year?: number; limit?: number; offset?: number },
+  ): Promise<ArtistSongsResponse> {
+    const sp = new URLSearchParams();
+    if (params?.year) sp.set("year", String(params.year));
+    if (params?.limit) sp.set("limit", String(params.limit));
+    if (params?.offset) sp.set("offset", String(params.offset));
+    return this.fetchJson(`/api/artists/${slug}/songs?${sp}`);
+  }
+
+  async getArtistYears(slug: string): Promise<number[]> {
+    return this.fetchJson(`/api/artists/${slug}/years`);
+  }
+
+  async analyzeArtist(req: ArtistAnalyzeRequest): Promise<{ status: string; message: string }> {
+    return this.fetchJson("/api/artists/analyze", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async discoverArtists(indexUrl: string, artistType = "ARTIST", maxArtists = 2000) {
+    return this.fetchJson("/api/artists/discover", {
+      method: "POST",
+      body: JSON.stringify({
+        index_url: indexUrl,
+        artist_type: artistType,
+        max_artists: maxArtists,
+      }),
+    });
+  }
+
+  async createCollection(req: CollectionCreateRequest): Promise<CollectionResponse> {
+    return this.fetchJson("/api/collections", {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async getCollection(jobId: number): Promise<CollectionStatus> {
+    return this.fetchJson(`/api/collections/${jobId}`);
+  }
+
+  async getCollectionProgress(jobId: number): Promise<CollectionProgress> {
+    return this.fetchJson(`/api/collections/${jobId}/progress`);
+  }
+
+  async cancelCollection(jobId: number): Promise<{ cancelled: boolean; status: string }> {
+    return this.fetchJson(`/api/collections/${jobId}/cancel`, { method: "POST" });
+  }
+
+  async createCollectionArchive(
+    jobId: number,
+    req: { prefix?: string; start_year?: number; end_year?: number },
+  ): Promise<ArchiveData> {
+    return this.fetchJson(`/api/collections/${jobId}/archive`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async getCollectionArchive(jobId: number): Promise<ArchiveData> {
+    return this.fetchJson(`/api/collections/${jobId}/archive`);
+  }
+
+  async cancelCollectionArchive(jobId: number): Promise<{ cancelled: boolean; status: string }> {
+    return this.fetchJson(`/api/collections/${jobId}/archive/cancel`, { method: "POST" });
   }
 
   async search(query: string, type?: string, year?: number): Promise<SearchResult[]> {

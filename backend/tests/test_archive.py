@@ -65,6 +65,37 @@ class TestMultiYearArchive:
             assert "1998/Album A/01 - Song A.mp3" in names
             assert "1999/Album C/01 - Song D.flac" in names
 
+    async def test_prefix_naming(self, generator, audio_root):
+        result = await generator.create_multi_year_archive(
+            [1998, 1999], audio_root.root, prefix="Tamil_Songs_"
+        )
+        assert result["success"]
+        assert result["archive_name"] == "Tamil_Songs_1998-1999.zip"
+
+    async def test_root_folder_nested_layout(self, generator, audio_root):
+        result = await generator.create_multi_year_archive(
+            [1998, 1999],
+            audio_root.root,
+            root_folder="Tamil_Songs_1998-1999",
+        )
+        assert result["success"]
+        with zipfile.ZipFile(result["archive_path"]) as zf:
+            names = set(zf.namelist())
+            assert "Tamil_Songs_1998-1999/1998/Album A/01 - Song A.mp3" in names
+            assert "Tamil_Songs_1998-1999/1999/Album C/01 - Song D.flac" in names
+
+    async def test_prefix_and_root_folder_combined(self, generator, audio_root):
+        result = await generator.create_multi_year_archive(
+            [1998],
+            audio_root.root,
+            prefix="Tamil_Songs_",
+            root_folder="Tamil_Songs_1998-1998",
+        )
+        assert result["success"]
+        assert result["archive_name"] == "Tamil_Songs_1998-1998.zip"
+        with zipfile.ZipFile(result["archive_path"]) as zf:
+            assert "Tamil_Songs_1998-1998/1998/Album A/01 - Song A.mp3" in zf.namelist()
+
 
 class TestAlbumArchive:
     async def test_album_archive_structure(self, generator, audio_root):

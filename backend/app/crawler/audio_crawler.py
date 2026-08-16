@@ -853,3 +853,153 @@ class AudioWebsiteCrawler:
         if isinstance(element, str):
             return element.strip()
         return None
+
+    # ------------------------------------------------------------------
+    # Artist discovery (metadata only — never downloads content)
+    # ------------------------------------------------------------------
+
+    ARTIST_HREF_RE = re.compile(r"/artist/[\w-]+", re.I)
+
+    async def discover_artist_links(
+        self,
+        engine: CrawlerEngine,
+        index_url: str,
+        job_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Crawl an artist index page and extract ``/artist/<slug>`` links.
+
+        Returns a list of ``{"name": display_name, "url": full_url}``. Multiple
+        URLs can point at the same logical artist — deduplication happens later
+        in ``ArtistService.get_or_create`` via normalized names.
+        """
+        self._emit_progress({
+            "type": "artist_index_start",
+            "job_id": job_id,
+            "url": index_url,
+        })
+
+        crawl_result = await engine.fetch(index_url)
+        if crawl_result.error or crawl_result.status_code != 200:
+            logger.error(
+                "Failed to fetch artist index",
+                url=index_url,
+                error=crawl_result.error,
+                status_code=crawl_result.status_code,
+            )
+            return []
+
+        soup = engine.parse_html(crawl_result.html)
+        entries: List[Dict[str, Any]] = []
+        seen = set()
+
+        for link in soup.find_all('a', href=self.ARTIST_HREF_RE):
+            href = link.get('href', '')
+            full_url = urljoin(index_url, href)
+            if full_url in seen:
+                continue
+            seen.add(full_url)
+            name = self._extract_text(link)
+            if not name or self._is_artifact_title(name):
+                continue
+            entries.append({"name": name, "url": full_url})
+
+        self._emit_progress({
+            "type": "artist_index_complete",
+            "job_id": job_id,
+            "url": index_url,
+            "artists_found": len(entries),
+        })
+        return entries
+
+    async def analyze_artist_page(
+        self,
+        engine: CrawlerEngine,
+        artist_url: str,
+        artist_id: Optional[int] = None,
+        job_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Analyze an artist page and extract its song/album metadata.
+
+        Metadata-only: song titles, album names, years and durations are
+        parsed from the page. Audio resources are NOT downloaded here.
+        """
+        self._emit_progress({
+            "type": "artist_analyze_start",
+            "job_id": job_id,
+            "artist_id": artist_id,
+            "url": artist_url,
+        })
+
+        crawl_result = await engine.fetch(artist_url)
+        if crawl_result.error or crawl_result.status_code != 200:
+            logger.error(
+                "Failed to fetch artist page",
+                url=artist_url,
+                error=crawl_result.error,
+                status_code=crawl_result.status_code,
+            )
+            return []
+
+        soup = engine.parse_html(crawl_result.html)
+        entries: List[Dict[str, Any]] = []
+
+        # Song list rows (reuse the dedicated song-item selectors)
+        items = soup.find_all(['li', 'div', 'tr'], class_=self.SONG_ITEM_RE)
+        if not items:
+            items = soup.find_all(['li', 'div', 'tr'], class_=re.compile(r'artist|track', re.I))
+
+        for item in items:
+            if self._is_zip_element(item):
+                continue
+            link = item.find('a', href=True)
+            if not link:
+                continue
+            href = urljoin(artist_url, link.get('href', ''))
+            title = self._extract_text(link)
+            if not title or self._is_artifact_title(title):
+                continue
+
+            duration = None
+            for elem in item.find_all(['p', 'div', 'span'], class_=re.compile(
+                r'duration|length|time|song-meta', re.I
+            )):
+                match = self.DURATION_RE.search(self._extract_text(elem) or "")
+                if match:
+                    duration = match.group(1)
+                    break
+
+            album = None
+            for elem in item.find_all(['p', 'div', 'span'], class_=re.compile(
+                r'album|label', re.I
+            )):
+                text = self._extract_text(elem)
+                if text and text.lower() not in ("album", "album:", ""):
+                    album = text.strip()
+                    break
+
+            entries.append({
+                "title": title,
+                "url": href,
+                "album": album,
+                "year": self._extract_release_year(item),
+                "duration": duration,
+            })
+
+        # De-duplicate by song URL
+        unique = []
+        seen = set()
+        for entry in entries:
+            key = entry["url"] or f"{entry['title']}:{entry.get('album')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(entry)
+
+        self._emit_progress({
+            "type": "artist_analyze_complete",
+            "job_id": job_id,
+            "artist_id": artist_id,
+            "url": artist_url,
+            "entries_found": len(unique),
+        })
+        return unique

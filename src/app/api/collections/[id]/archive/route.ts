@@ -1,0 +1,21 @@
+import { NextRequest } from "next/server";
+import { proxyBackend } from "@/lib/backend";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  return proxyBackend(`/api/collections/${id}/archive`);
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const body = await request.json();
+  return proxyBackend(`/api/collections/${id}/archive`, { method: "POST", body });
+}

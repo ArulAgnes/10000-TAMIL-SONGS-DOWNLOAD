@@ -16,10 +16,10 @@ import structlog
 
 from app.models.database import (
     DownloadJob, Archive, Year, Album, Song, AudioResource, Category,
-    JobStatus, ResourceStatus,
+    JobStatus, ResourceStatus, ArchiveStatus,
 )
 from app.downloader.manager import DownloadManager
-from app.archive.generator import ArchiveGenerator
+from app.archive.generator import ArchiveGenerator, ArchiveError
 from app.storage.audio_storage import AudioStorage
 
 logger = structlog.get_logger()
@@ -41,6 +41,8 @@ class DownloadService:
         self.active_jobs: Dict[int, asyncio.Task] = {}
         self.progress_callbacks: Dict[int, List[Callable]] = {}
         self._last_progress: Dict[int, Dict[str, Any]] = {}
+        self.archive_tasks: Dict[int, asyncio.Task] = {}
+        self.archive_cancel_events: Dict[int, asyncio.Event] = {}
 
     # ------------------------------------------------------------------
     # Progress callbacks
@@ -366,6 +368,8 @@ class DownloadService:
                 file_count=1,
                 year_start=r["year"],
                 year_end=r["year"],
+                status=ArchiveStatus.COMPLETED,
+                completed_at=datetime.utcnow(),
             )
             db.add(archive)
 
@@ -416,6 +420,8 @@ class DownloadService:
                 file_count=archive_result["file_count"],
                 year_start=min(years) if years else None,
                 year_end=max(years) if years else None,
+                status=ArchiveStatus.COMPLETED,
+                completed_at=datetime.utcnow(),
             )
             db.add(archive)
             await db.commit()
@@ -475,6 +481,147 @@ class DownloadService:
             db, result, "years", year_start=start_year, year_end=end_year
         )
 
+    # ------------------------------------------------------------------
+    # Combined multi-year collection archive (status tracked, cancellable)
+    # ------------------------------------------------------------------
+
+    async def create_collection_archive(
+        self,
+        db: AsyncSession,
+        crawl_job_id: int,
+        start_year: int,
+        end_year: int,
+        prefix: str = "",
+    ) -> Dict[str, Any]:
+        """Create one ZIP for an entire year range, linked to a crawl job.
+
+        A placeholder ``archives`` row is created immediately (status
+        ``PENDING``) and updated to ``RUNNING``/``COMPLETED``/``FAILED``/
+        ``CANCELLED`` as generation progresses in the background. The archive
+        is streamed from the filesystem (never held fully in RAM) and temp
+        files are cleaned up on success, failure and cancellation.
+        """
+        if start_year > end_year:
+            raise ValueError("start_year must be <= end_year")
+
+        display_name = f"{prefix}{start_year}-{end_year}" if prefix else f"{start_year}-{end_year}"
+        archive = Archive(
+            download_job_id=None,
+            crawl_job_id=crawl_job_id,
+            archive_type="years",
+            name=f"{display_name}.zip",
+            path="",  # filled on completion
+            size_bytes=0,
+            file_count=0,
+            year_start=start_year,
+            year_end=end_year,
+            status=ArchiveStatus.PENDING,
+        )
+        db.add(archive)
+        await db.flush()
+        await db.refresh(archive)
+
+        task = asyncio.create_task(
+            self._run_collection_archive(
+                archive.id, crawl_job_id, start_year, end_year, prefix
+            )
+        )
+        self.archive_tasks[archive.id] = task
+
+        return {
+            "success": True,
+            "archive_id": archive.id,
+            "name": archive.name,
+            "status": ArchiveStatus.PENDING.value,
+        }
+
+    async def _run_collection_archive(
+        self,
+        archive_id: int,
+        crawl_job_id: int,
+        start_year: int,
+        end_year: int,
+        prefix: str,
+    ):
+        from app.database.config import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as db:
+            archive = await db.get(Archive, archive_id)
+            if not archive:
+                return
+
+            archive.status = ArchiveStatus.RUNNING
+            await db.commit()
+
+            root_folder = f"{prefix}{start_year}-{end_year}".strip("-_ ") or None
+            years = list(range(start_year, end_year + 1))
+
+            # Wire progress + cancellation into the generator
+            self.archive_generator.set_progress_callback(
+                lambda data: self._on_archive_progress(archive_id, data)
+            )
+            cancel_event = asyncio.Event()
+            self.archive_cancel_events[archive_id] = cancel_event
+            self.archive_generator.set_cancel_event(cancel_event)
+
+            try:
+                result = await self.archive_generator.create_multi_year_archive(
+                    years=years,
+                    audio_root=self.storage.root,
+                    job_id=crawl_job_id,
+                    prefix=prefix,
+                    root_folder=root_folder,
+                )
+            finally:
+                self.archive_generator.set_cancel_event(None)
+                self.archive_cancel_events.pop(archive_id, None)
+
+            if result.get("cancelled"):
+                archive.status = ArchiveStatus.CANCELLED
+                archive.error_message = result.get("error") or "Archive creation cancelled"
+                await db.commit()
+                return
+
+            if not result.get("success"):
+                archive.status = ArchiveStatus.FAILED
+                archive.error_message = result.get("error") or "Archive creation failed"
+                await db.commit()
+                return
+
+            archive.status = ArchiveStatus.COMPLETED
+            archive.path = result["relative_path"]
+            archive.name = result["archive_name"]
+            archive.size_bytes = result["archive_size"]
+            archive.file_count = result["file_count"]
+            archive.completed_at = datetime.utcnow()
+            archive.error_message = None
+            await db.commit()
+
+            self._on_archive_progress(archive_id, {
+                "type": "archive_complete",
+                "archive_id": archive_id,
+                "name": archive.name,
+                "size_bytes": archive.size_bytes,
+                "file_count": archive.file_count,
+            })
+
+    def cancel_collection_archive(self, archive_id: int) -> bool:
+        """Request cancellation of a running collection archive."""
+        event = self.archive_cancel_events.get(archive_id)
+        if event:
+            event.set()
+            return True
+        return False
+
+    def _on_archive_progress(self, archive_id: int, data: Dict[str, Any]):
+        data["archive_id"] = archive_id
+        if archive_id in self.progress_callbacks:
+            for cb in self.progress_callbacks[archive_id]:
+                try:
+                    cb(data)
+                except Exception as e:
+                    logger.error("Archive progress callback error", error=str(e))
+
     async def _record_archive(
         self,
         db: AsyncSession,
@@ -482,12 +629,14 @@ class DownloadService:
         archive_type: str,
         year_start: Optional[int] = None,
         year_end: Optional[int] = None,
+        crawl_job_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         if not result.get("success"):
             return result
 
         archive = Archive(
             download_job_id=None,
+            crawl_job_id=crawl_job_id,
             archive_type=archive_type,
             name=result["archive_name"],
             path=result["relative_path"],
@@ -495,6 +644,8 @@ class DownloadService:
             file_count=result["file_count"],
             year_start=year_start,
             year_end=year_end,
+            status=ArchiveStatus.COMPLETED,
+            completed_at=datetime.utcnow(),
         )
         db.add(archive)
         await db.commit()

@@ -4,8 +4,8 @@ from enum import Enum as PyEnum
 from typing import Optional
 
 from sqlalchemy import (
-    String, DateTime, ForeignKey, Text,
-    Boolean, Enum, JSON, UniqueConstraint, Index, BigInteger, Integer
+    String, DateTime, ForeignKey,
+    Text, Boolean, Enum, JSON, UniqueConstraint, Index, BigInteger, Integer, Float
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.config import Base
@@ -31,6 +31,50 @@ class ResourceStatus(str, PyEnum):
     PROTECTED = "protected"
 
 
+class ArtistType(str, PyEnum):
+    SINGER = "SINGER"
+    MUSIC_DIRECTOR = "MUSIC_DIRECTOR"
+    LYRICIST = "LYRICIST"
+    COMPOSER = "COMPOSER"
+    ARTIST = "ARTIST"
+    UNKNOWN = "UNKNOWN"
+
+
+class ArchiveStatus(str, PyEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class Artist(Base):
+    __tablename__ = "artists"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    slug: Mapped[str] = mapped_column(String(220), nullable=False, unique=True, index=True)
+    artist_type: Mapped[ArtistType] = mapped_column(
+        Enum(ArtistType), default=ArtistType.UNKNOWN, nullable=True
+    )
+    source_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    song_count: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True
+    )
+
+    # Relationships
+    songs: Mapped[list["Song"]] = relationship("Song", back_populates="artist_record")
+    albums: Mapped[list["Album"]] = relationship("Album", back_populates="artist_record")
+
+    __table_args__ = (Index("idx_artist_name", "name"),)
+
+
 class CrawlJob(Base):
     __tablename__ = "crawl_jobs"
     
@@ -52,7 +96,19 @@ class CrawlJob(Base):
     processed_albums: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
     total_songs: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
     processed_songs: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
-    
+
+    # Multi-year collection tracking (extends the same crawl job row so no
+    # separate job system is introduced)
+    total_resources: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    failed_urls_count: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    skipped_urls_count: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    current_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    current_album: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    current_song: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    progress_percentage: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Configuration
     config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
     
@@ -110,6 +166,7 @@ class Album(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     category_id: Mapped[int] = mapped_column(Integer, ForeignKey("categories.id"), nullable=False)
+    artist_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("artists.id"), nullable=True, index=True)
     
     # Album metadata
     title: Mapped[str] = mapped_column(String(300), nullable=False)
@@ -135,6 +192,7 @@ class Album(Base):
     
     # Relationships
     category: Mapped["Category"] = relationship("Category", back_populates="albums")
+    artist_record: Mapped[Optional["Artist"]] = relationship("Artist", back_populates="albums")
     songs: Mapped[list["Song"]] = relationship("Song", back_populates="album", cascade="all, delete-orphan")
     
     __table_args__ = (UniqueConstraint('url', name='unique_album_url'),)
@@ -145,12 +203,14 @@ class Song(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     album_id: Mapped[int] = mapped_column(Integer, ForeignKey("albums.id"), nullable=False)
+    artist_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("artists.id"), nullable=True, index=True)
     
     # Song metadata
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, index=True)
     track_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     duration: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     artist: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     lyrics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
@@ -159,6 +219,7 @@ class Song(Base):
     
     # Relationships
     album: Mapped["Album"] = relationship("Album", back_populates="songs")
+    artist_record: Mapped[Optional["Artist"]] = relationship("Artist", back_populates="songs")
     audio_resources: Mapped[list["AudioResource"]] = relationship("AudioResource", back_populates="song", cascade="all, delete-orphan")
 
 
@@ -246,6 +307,12 @@ class Archive(Base):
     year_start: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     year_end: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     album_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
+
+    # Collection job link + lifecycle (multi-year combined archives)
+    crawl_job_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("crawl_jobs.id"), nullable=True)
+    status: Mapped[ArchiveStatus] = mapped_column(Enum(ArchiveStatus), default=ArchiveStatus.PENDING, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

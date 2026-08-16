@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api, YearData, AlbumData } from "@/lib/api";
+import { api, YearData, AlbumData, formatDuration } from "@/lib/api";
 
 interface YearDetailProps {
   year: YearData;
@@ -145,7 +145,11 @@ export default function YearDetail({ year, onClose, onDownload }: YearDetailProp
                                 {s.title}
                               </span>
                               <div className="flex items-center gap-2">
-                                {s.duration && <span className="text-gray-400">{s.duration}</span>}
+                                <span className="text-gray-400 tabular-nums">
+                                  {s.duration_seconds != null
+                                    ? formatDuration(s.duration_seconds)
+                                    : s.duration || "--:--"}
+                                </span>
                                 <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${statusBadge[s.status] || "bg-gray-100"}`}>
                                   {s.status}
                                 </span>

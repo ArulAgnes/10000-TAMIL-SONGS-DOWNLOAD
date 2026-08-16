@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
-from app.models.database import JobStatus, ResourceStatus
+from app.models.database import JobStatus, ResourceStatus, ArtistType, ArchiveStatus
 
 
 # Crawler Configuration
@@ -163,6 +163,7 @@ class SongBase(BaseModel):
     title: str
     track_number: Optional[int]
     duration: Optional[str]
+    duration_seconds: Optional[int] = None
     artist: Optional[str]
     lyrics: Optional[str]
     status: JobStatus
@@ -266,6 +267,7 @@ class DownloadProgress(BaseModel):
 class ArchiveResponse(BaseModel):
     id: int
     download_job_id: Optional[int]
+    crawl_job_id: Optional[int] = None
     archive_type: Optional[str]
     name: str
     path: str
@@ -273,6 +275,9 @@ class ArchiveResponse(BaseModel):
     file_count: int
     year_start: Optional[int]
     year_end: Optional[int]
+    status: Optional[str] = None
+    error_message: Optional[str] = None
+    completed_at: Optional[datetime] = None
     created_at: datetime
     expires_at: Optional[datetime]
     download_url: Optional[str]
@@ -292,6 +297,123 @@ class AlbumArchiveRequest(BaseModel):
 class YearsArchiveRequest(BaseModel):
     start_year: int
     end_year: int
+
+
+class CollectionArchiveRequest(BaseModel):
+    prefix: str = Field(default="", max_length=80, description="Archive name prefix, e.g. Tamil_Songs_")
+    start_year: Optional[int] = None
+    end_year: Optional[int] = None
+
+
+# ============================================================================
+# Artist Schemas
+# ============================================================================
+
+class ArtistResponse(BaseModel):
+    id: int
+    name: str
+    normalized_name: str
+    slug: str
+    artist_type: Optional[str] = None
+    source_url: Optional[str] = None
+    song_count: int
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ArtistListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    artists: List[ArtistResponse]
+
+
+class ArtistSongResponse(BaseModel):
+    id: int
+    title: str
+    album: Optional[str] = None
+    album_id: Optional[int] = None
+    year: Optional[int] = None
+    duration: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    artist: Optional[str] = None
+    track_number: Optional[int] = None
+    status: Optional[str] = None
+    resource_count: int = 0
+    source_url: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ArtistSongsResponse(BaseModel):
+    artist: ArtistResponse
+    total: int
+    limit: int
+    offset: int
+    songs: List[ArtistSongResponse]
+
+
+class ArtistAnalyzeRequest(BaseModel):
+    artist_id: int
+    artist_url: Optional[str] = Field(
+        default=None,
+        description="Optional artist source URL to analyze (updates the artist record)",
+    )
+
+
+class ArtistDiscoverRequest(BaseModel):
+    index_url: str = Field(..., description="Artist index page URL (e.g. https://site.com/artists)")
+    artist_type: Optional[ArtistType] = ArtistType.ARTIST
+    max_artists: int = Field(default=2000, ge=1, le=50000)
+
+
+# ============================================================================
+# Multi-year Collection Schemas
+# ============================================================================
+
+class CollectionCreateRequest(BaseModel):
+    base_url: str = Field(..., description="Base URL pattern with {year} placeholder")
+    start_year: int = Field(..., ge=1900, le=2100)
+    end_year: int = Field(..., ge=1900, le=2100)
+    archive_prefix: Optional[str] = Field(default="", max_length=80)
+    config: Optional[CrawlerConfig] = Field(default=None)
+
+
+class CollectionResponse(BaseModel):
+    job_id: int
+    status: str
+    years: List[int]
+    start_year: int
+    end_year: int
+    base_url: str
+    message: str
+    created_at: datetime
+
+
+class CollectionProgress(BaseModel):
+    job_id: int
+    status: str
+    total_years: int
+    completed_years: int
+    total_albums: int
+    total_songs: int
+    total_resources: int
+    failed_urls: int
+    skipped_urls: int
+    current_year: Optional[int]
+    current_album: Optional[str]
+    current_song: Optional[str]
+    progress_percentage: float
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    elapsed_seconds: Optional[int]
+    estimated_remaining_seconds: Optional[int]
+    error_message: Optional[str]
 
 
 # Search Schemas

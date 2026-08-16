@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import AnalyzerForm from "@/components/dashboard/AnalyzerForm";
 import ProgressTracker from "@/components/dashboard/ProgressTracker";
+import CollectionPanel from "@/components/dashboard/CollectionPanel";
 import YearCards from "@/components/dashboard/YearCards";
 import YearDetail from "@/components/dashboard/YearDetail";
 import Statistics from "@/components/dashboard/Statistics";
@@ -33,30 +34,16 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                🎵 Audio Collection Analyzer
-              </h1>
-              <p className="text-sm text-gray-500">
-                Crawl audio sites by year, discover albums &amp; songs, download authorized ZIPs
-              </p>
-            </div>
-            <nav className="flex gap-4">
-              <button
-                onClick={() => setShowStats(!showStats)}
-                className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1 rounded border"
-              >
-                {showStats ? "Hide Stats" : "Show Stats"}
-              </button>
-            </nav>
-          </div>
-        </div>
-      </header>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-end">
+        <button
+          onClick={() => setShowStats(!showStats)}
+          className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1 rounded border bg-white"
+        >
+          {showStats ? "Hide Stats" : "Show Stats"}
+        </button>
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column */}
           <div className="lg:col-span-1 space-y-6">
@@ -69,6 +56,8 @@ export default function Dashboard() {
                 onComplete={handleAnalysisComplete}
               />
             )}
+
+            <CollectionPanel />
           </div>
 
           {/* Right Column */}
